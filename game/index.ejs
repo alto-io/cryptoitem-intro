@@ -1,0 +1,1419 @@
+<html lang="en">
+	<head>
+		<title>In-game Item Demo</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			html, body {
+				width: 100%;
+				height: 100%;
+			}
+
+			body {
+				color: #61443e;
+				font-family:Monospace;
+				font-size:13px;
+				text-align:center;
+
+				background-color: #bfd1e5;
+				margin: 0px;
+				overflow: hidden;
+			}
+
+			#info {
+				position: absolute;
+				top: 0px; width: 100%;
+				padding: 5px;
+				color: #ffffff;
+			}
+
+			a {
+				color: aqua;
+			}
+
+			#cursor {
+				position: fixed;
+			  top: 50%;
+			  left: 50%;
+				width: 20px;
+				height: 20px;
+			  margin-top: -10px;
+			  margin-left: -10px;
+				background-image: url('resources/textures/cursor.png');
+			}
+
+			#blocker {
+
+				position: absolute;
+
+				width: 100%;
+				height: 100%;
+
+				background-color: rgba(0,0,0,0.5);
+
+			}
+
+			#instructions {
+
+				width: 100%;
+				height: 100%;
+
+				display: -webkit-box;
+				display: -moz-box;
+				display: box;
+
+				-webkit-box-orient: horizontal;
+				-moz-box-orient: horizontal;
+				box-orient: horizontal;
+
+				-webkit-box-pack: center;
+				-moz-box-pack: center;
+				box-pack: center;
+
+				-webkit-box-align: center;
+				-moz-box-align: center;
+				box-align: center;
+
+				color: #ffffff;
+				text-align: center;
+
+				cursor: pointer;
+
+			}
+
+			#ammo {
+				position: fixed;
+				bottom: 20px;
+				right: 20px;
+				padding: 8px;
+				color: #fff;
+				background-color: #555;
+				opacity: 0.7;
+				font-size:30px;
+
+			}
+
+		</style>
+	</head>
+	<body>
+		<div id="blocker">
+
+			<div id="instructions">
+				<span style="font-size:40px">Click to Play</span>
+				<br />
+				(W, A, S, D = Move, MOUSE = Look around, ESC = Pause)
+			</div>
+
+		</div>
+
+
+	<div id="info">In-game Item Demo (works on Chrome on desktop)<br />More info here: <a href="https://medium.com/@polats/what-makes-an-in-game-item-a-cryptoitem-part-1-b3802525bf20">What Makes An In-Game Item A CryptoItem?</a></div>
+	<div id="container"><br /><br /><br /><br /><br />Loading...</div>
+	<div id="cursor"></div>
+	<div id="ammo">BULLETS: </div>
+
+	<script src="js/three.js"></script>
+	<script src="js/libs/ammo.js"></script>
+	<script src="js/controls/PointerLockControls.js"></script>
+
+	<script src="js/Detector.js"></script>
+	<script src="js/libs/stats.min.js"></script>
+	<script src="js/libs/dat.gui.min.js"></script>
+	<script src="js/ConvexObjectBreaker.js"></script>
+	<script src="js/QuickHull.js"></script>
+	<script src="js/geometries/ConvexGeometry.js"></script>
+
+	<script src="js/loaders/OBJLoader.js"></script>
+	<script src="js/loaders/HDRCubeTextureLoader.js"></script>
+	<script src="js/loaders/RGBELoader.js"></script>
+	<script src="js/loaders/GLTFLoader.js"></script>
+
+	<script src="js/pmrem/PMREMGenerator.js"></script>
+	<script src="js/pmrem/PMREMCubeUVPacker.js"></script>
+
+	<script>
+
+		// Detects webgl
+		if ( ! Detector.webgl ) {
+			Detector.addGetWebGLMessage();
+			document.getElementById( 'container' ).innerHTML = "";
+		}
+
+		const INITIAL_BULLET_COUNT = 10;
+		// - Global variables -
+		var mixer;
+		var clips;
+		var playerdata =
+		{
+			bulletCount: INITIAL_BULLET_COUNT,
+			username: "",
+			password: "",
+			accountDataInternal: null,
+			accountDataListener: function(val) {},
+			get isLoggedIn()
+			{
+				return this.accountDataInternal != null;
+			},
+			set accountData(val) {
+				this.accountDataInternal = val;
+				this.accountDataListener(val);
+			},
+			get accountData() {
+				return this.accountDataInternal;
+			},
+			registerListener: function(listener)
+			{
+				this.accountDataListener = listener;
+			}
+		};
+
+		var gunSettings =
+		{
+			bulletColor: [0, 0, 0],
+			bulletSpeed: 120,
+			bulletPower: 10,
+			bulletSize: 0.1
+		}
+
+
+		// Graphics variables
+		var container, stats;
+		var camera, controls, scene, renderer;
+		var textureLoader;
+		var clock = new THREE.Clock();
+
+		var mouseCoords = new THREE.Vector2();
+		var raycaster = new THREE.Raycaster();
+		var ballMaterial = new THREE.MeshPhongMaterial( { color: 0x202020 } );
+
+		// Physics variables
+		var gravityConstant = 40.8;
+		var collisionConfiguration;
+		var dispatcher;
+		var broadphase;
+		var solver;
+		var physicsWorld;
+		var margin = 0.05;
+
+		var convexBreaker = new THREE.ConvexObjectBreaker();
+
+		// Rigid bodies include all movable objects
+		var rigidBodies = [];
+		var bullets = [];
+
+		var pos = new THREE.Vector3();
+		var quat = new THREE.Quaternion();
+		var transformAux1 = new Ammo.btTransform();
+		var tempBtVec3_1 = new Ammo.btVector3( 0, 0, 0 );
+
+		var time = 0;
+
+		var objectsToRemove = [];
+		for ( var i = 0; i < 500; i++ ) {
+			objectsToRemove[ i ] = null;
+		}
+		var numObjectsToRemove = 0;
+
+		var impactPoint = new THREE.Vector3();
+		var impactNormal = new THREE.Vector3();
+
+		var blocker = document.getElementById( 'blocker' );
+		var instructions = document.getElementById( 'instructions' );
+
+		var weapon;
+
+		var havePointerLock = 'pointerLockElement' in document || 'mozPointerLockElement' in document || 'webkitPointerLockElement' in document;
+
+		if ( havePointerLock ) {
+
+			var element = document.body;
+
+			var pointerlockchange = function ( event ) {
+
+				if ( document.pointerLockElement === element || document.mozPointerLockElement === element || document.webkitPointerLockElement === element ) {
+
+					controlsEnabled = true;
+					controls.enabled = true;
+
+					blocker.style.display = 'none';
+
+				} else {
+
+					controls.enabled = false;
+
+					blocker.style.display = 'block';
+
+					instructions.style.display = '';
+
+				}
+
+			};
+
+			var pointerlockerror = function ( event ) {
+
+				instructions.style.display = '';
+
+			};
+
+			// Hook pointer lock state change events
+			document.addEventListener( 'pointerlockchange', pointerlockchange, false );
+			document.addEventListener( 'mozpointerlockchange', pointerlockchange, false );
+			document.addEventListener( 'webkitpointerlockchange', pointerlockchange, false );
+
+			document.addEventListener( 'pointerlockerror', pointerlockerror, false );
+			document.addEventListener( 'mozpointerlockerror', pointerlockerror, false );
+			document.addEventListener( 'webkitpointerlockerror', pointerlockerror, false );
+
+			playerdata.registerListener(function(val) {
+				updateGameState(val);
+			});
+
+			instructions.addEventListener( 'click', function ( event ) {
+
+				instructions.style.display = 'none';
+
+				// Ask the browser to lock the pointer
+				element.requestPointerLock = element.requestPointerLock || element.mozRequestPointerLock || element.webkitRequestPointerLock;
+				element.requestPointerLock();
+
+			}, false );
+
+		} else {
+
+			instructions.innerHTML = 'Your browser doesn\'t seem to support Pointer Lock API';
+
+		}
+
+		// - Main code -
+
+		init();
+		// loadObjModels();
+		loadGlbModels();
+		animate();
+
+
+		// - Functions -
+
+		var controlsEnabled = false;
+
+		var moveForward = false;
+		var moveBackward = false;
+		var moveLeft = false;
+		var moveRight = false;
+		var canJump = false;
+
+		var prevTime = performance.now();
+		var velocity = new THREE.Vector3();
+		var direction = new THREE.Vector3();
+
+
+		// This is called with the results from from FB.getLoginStatus().
+	  function statusChangeCallback(response) {
+	    console.log('statusChangeCallback');
+	    console.log(response);
+	    // The response object is returned with a status field that lets the
+	    // app know the current login status of the person.
+	    // Full docs on the response object can be found in the documentation
+	    // for FB.getLoginStatus().
+	    if (response.status === 'connected') {
+	      // Logged into your app and Facebook.
+	      testAPI();
+	    } else {
+				createLoggedOutPanel();
+
+	      // The person is not logged into your app or we are unable to tell.
+	      console.log( 'Please log into this app.');
+	    }
+	  }
+
+	  // This function is called when someone finishes with the Login
+	  // Button.  See the onlogin handler attached to it in the sample
+	  // code below.
+	  function checkLoginState() {
+	    FB.getLoginStatus(function(response) {
+	      statusChangeCallback(response);
+	    });
+	  }
+
+	  window.fbAsyncInit = function() {
+	    FB.init({
+	      appId      : '',
+	      cookie     : true,  // enable cookies to allow the server to access
+	                          // the session
+	      xfbml      : true,  // parse social plugins on this page
+	      version    : 'v2.8' // use graph api version 2.8
+	    });
+
+	    // Now that we've initialized the JavaScript SDK, we call
+	    // FB.getLoginStatus().  This function gets the state of the
+	    // person visiting this page and can return one of three states to
+	    // the callback you provide.  They can be:
+	    //
+	    // 1. Logged into your app ('connected')
+	    // 2. Logged into Facebook, but not your app ('not_authorized')
+	    // 3. Not logged into Facebook and can't tell if they are logged into
+	    //    your app or not.
+	    //
+	    // These three cases are handled in the callback function.
+
+	    FB.getLoginStatus(function(response) {
+	      statusChangeCallback(response);
+	    });
+
+	  };
+
+	  // Load the SDK asynchronously
+	  (function(d, s, id) {
+	    var js, fjs = d.getElementsByTagName(s)[0];
+	    if (d.getElementById(id)) return;
+	    js = d.createElement(s); js.id = id;
+	    js.src = "https://connect.facebook.net/en_US/sdk.js";
+	    fjs.parentNode.insertBefore(js, fjs);
+	  }(document, 'script', 'facebook-jssdk'));
+
+	  function createPlayer(fbdata)
+	  {
+	    // create player
+	    const url = "https://localhost/set";
+	    fetch(url, {
+	        method : "POST",
+	        body : JSON.stringify({
+	          kind: "Player",
+	          key: fbdata.id,
+	          value: JSON.stringify({
+	            name: fbdata.name
+	          })
+	        })
+	    }).then(
+	        response => response.text()
+	    ).then(
+	        html => console.log(html)
+	    );
+	  }
+
+	  function syncPlayer(fbdata)
+	  {
+	    // check if player exists in DB
+	    const url = "https://localhost/get";
+	    fetch(url, {
+	        method : "POST",
+	        body : JSON.stringify({
+	          kind: "Player",
+	          key: fbdata.id
+	        })
+	      }).then(
+	          response => response.text()
+	      ).then(
+	        entity => {
+	          if (entity.length == 0) {
+	            console.log("No entry found, creating player data.");
+	            createPlayer(fbdata);
+	          }
+	          else {
+	            console.log("Entity found:" + entity);
+	          }
+	        }
+	    );
+	  }
+
+
+	  // Here we run a very simple test of the Graph API after login is
+	  // successful.  See statusChangeCallback() for when this call is made.
+	  function testAPI() {
+	    console.log('Welcome!  Fetching your information.... ');
+	    FB.api('/me', function(fbdata) {
+				playerdata.fbdata = fbdata;
+	      console.log(fbdata);
+	      syncPlayer(fbdata);
+				createLoggedInPanel();
+
+	    });
+	  }
+
+
+		function initLogin()
+		{
+			<% if (typeof user == 'undefined') { %>
+				/* logged Out */
+				createLoggedOutPanel();
+
+			<% } else { %>
+				console.log("user logged in");
+			<% } %>
+		}
+
+
+		function init() {
+
+			initLogin();
+
+			initGraphics();
+
+			initPhysics();
+
+			createObjects();
+
+			initInput();
+
+			updateHud();
+
+		}
+
+		function updateGameState()
+		{
+			updateHud();
+		}
+
+		var panel;
+
+		function startLoginPrompt()
+		{
+			if (panel != null)
+				panel.open();
+		}
+
+		function facebookLogout()
+		{
+			FB.logout();
+			playerdata.bulletCount = 0;
+			playerdata.fbdata = null;
+			createLoggedOutPanel();
+		}
+
+		function facebookLogin()
+		{
+			FB.login(function(response) {
+		   	if (response.authResponse) {
+					testAPI();
+		   	}
+	     	else {
+	     		console.log('User cancelled login or did not fully authorize.');
+	    	}
+			});
+		}
+
+		function reqListener()
+		{
+			console.log(this.responseText);
+		}
+
+		function localLogin()
+		{
+			var formData = new FormData();
+			formData.append("email", playerdata.username);
+			formData.append("password", playerdata.password);
+
+			var request = new XMLHttpRequest();
+			request.open("POST", "/login", true);
+			request.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+
+			//Send the proper header information along with the request
+			request.addEventListener("load", reqListener);
+			request.send(formData);
+		}
+
+		function registerUser()
+		{
+			console.log(playerdata.username + ":" + playerdata.password);
+		}
+
+		function resetLevel()
+		{
+			rigidBodies.forEach(function(i) {
+				scene.remove(i);
+				physicsWorld.removeRigidBody( i.userData.physicsBody );
+			});
+
+			createDestructibles();
+		}
+
+		function createLoggedInPanel() {
+			if (panel != null) panel.destroy();
+			panel = new dat.GUI( { width: 350 } );
+
+			var logout = panel.addFolder('Logged in as ' + playerdata.fbdata.name);
+
+			settings = {
+				'Reset level': resetLevel,
+				'Log out': facebookLogout
+			}
+
+			logout.add (settings, 'Reset level');
+			logout.addColor (gunSettings, 'bulletColor');
+			logout.add(gunSettings, 'bulletSpeed', 10, 200).step(10);
+			logout.add(gunSettings, 'bulletPower', 1, 50).step(1);
+			logout.add(gunSettings, 'bulletSize', 0.1, 2.0).step(0.1);
+			logout.add (settings, 'Log out');
+			logout.open();
+		}
+
+		function createLoggedOutPanel() {
+			if (panel != null) panel.destroy();
+			panel = new dat.GUI( { width: 350 } );
+
+			var login = panel.addFolder('Out of bullets? Login for\ninfinite ammo and weapon options');
+
+			settings = {
+				'Click here to log in': localLogin,
+				'Click here to register': registerUser
+			};
+
+			login.add (playerdata, 'username');
+			login.add (playerdata, 'password');
+			login.add (settings, 'Click here to log in');
+			login.add (settings, 'Click here to register');
+			login.open();
+			/*
+			var folder1 = panel.addFolder( 'Visibility' );
+			var folder2 = panel.addFolder( 'Activation/Deactivation' );
+			var folder3 = panel.addFolder( 'Pausing/Stepping' );
+			var folder4 = panel.addFolder( 'Crossfading' );
+			var folder5 = panel.addFolder( 'Blend Weights' );
+			var folder6 = panel.addFolder( 'General Speed' );
+
+
+
+			settings = {
+				'show model':            true,
+				'show skeleton':         false,
+				'deactivate all':        deactivateAllActions,
+				'activate all':          activateAllActions,
+				'pause/continue':        pauseContinue,
+				'make single step':      toSingleStepMode,
+				'modify step size':      0.05,
+				'from walk to idle':     function () { prepareCrossFade( walkAction, idleAction, 1.0 ) },
+				'from idle to walk':     function () { prepareCrossFade( idleAction, walkAction, 0.5 ) },
+				'from walk to run':      function () { prepareCrossFade( walkAction, runAction, 2.5 ) },
+				'from run to walk':      function () { prepareCrossFade( runAction, walkAction, 5.0 ) },
+				'use default duration':  true,
+				'set custom duration':   3.5,
+				'modify idle weight':    0.0,
+				'modify walk weight':    1.0,
+				'modify run weight':     0.0,
+				'modify time scale':     1.0
+			};
+
+			folder1.add( settings, 'show model' ).onChange( showModel );
+			folder1.add( settings, 'show skeleton' ).onChange( showSkeleton );
+			folder2.add( settings, 'deactivate all' );
+			folder2.add( settings, 'activate all' );
+			folder3.add( settings, 'pause/continue' );
+			folder3.add( settings, 'make single step' );
+			folder3.add( settings, 'modify step size', 0.01, 0.1, 0.001 );
+			crossFadeControls.push( folder4.add( settings, 'from walk to idle' ) );
+			crossFadeControls.push( folder4.add( settings, 'from idle to walk' ) );
+			crossFadeControls.push( folder4.add( settings, 'from walk to run' ) );
+			crossFadeControls.push( folder4.add( settings, 'from run to walk' ) );
+			folder4.add( settings, 'use default duration' );
+			folder4.add( settings, 'set custom duration', 0, 10, 0.01 );
+			folder5.add( settings, 'modify idle weight', 0.0, 1.0, 0.01 ).listen().onChange( function ( weight ) { setWeight( idleAction, weight ) } );
+			folder5.add( settings, 'modify walk weight', 0.0, 1.0, 0.01 ).listen().onChange( function ( weight ) { setWeight( walkAction, weight ) } );
+			folder5.add( settings, 'modify run weight', 0.0, 1.0, 0.01 ).listen().onChange( function ( weight ) { setWeight( runAction, weight ) } );
+			folder6.add( settings, 'modify time scale', 0.0, 1.5, 0.01 ).onChange( modifyTimeScale );
+
+			folder1.open();
+			folder2.open();
+			folder3.open();
+			folder4.open();
+			folder5.open();
+			folder6.open();
+
+			crossFadeControls.forEach( function ( control ) {
+
+				control.classList1 = control.domElement.parentElement.parentElement.classList;
+				control.classList2 = control.domElement.previousElementSibling.classList;
+
+				control.setDisabled = function () {
+
+					control.classList1.add( 'no-pointer-events' );
+					control.classList2.add( 'control-disabled' );
+
+				};
+
+				control.setEnabled = function () {
+
+					control.classList1.remove( 'no-pointer-events' );
+					control.classList2.remove( 'control-disabled' );
+
+				};
+
+			} );
+			*/
+			panel.close();
+		}
+
+
+
+		function updateHud() {
+			if (playerdata.isLoggedIn)
+			{
+				document.getElementById( 'ammo' ).innerHTML = ("BULLETS: ∞");
+			}
+			else {
+				document.getElementById( 'ammo' ).innerHTML = ("BULLETS: " + playerdata.bulletCount);
+			}
+		}
+
+		function loadGlbModels() {
+			var loader = new THREE.GLTFLoader();
+			loader.load( 'models/glb/gun-by-van.glb', function ( group ) {
+
+				var material;
+
+				group.scene.traverse( function ( child ) {
+
+					if ( child instanceof THREE.Mesh ) {
+
+						material = child.material;
+
+					}
+
+				} );
+
+				weapon = group.scene;
+
+				camera.add( group.scene );
+
+				clips = group.animations;
+				mixer = new THREE.AnimationMixer(group.scene);
+
+				repositionWeapon();
+
+				/*
+				var genCubeUrls = function( prefix, postfix ) {
+					return [
+						prefix + 'px' + postfix, prefix + 'nx' + postfix,
+						prefix + 'py' + postfix, prefix + 'ny' + postfix,
+						prefix + 'pz' + postfix, prefix + 'nz' + postfix
+					];
+				};
+
+				var hdrUrls = genCubeUrls( './textures/cube/pisaHDR/', '.hdr' );
+				new THREE.HDRCubeTextureLoader().load( THREE.UnsignedByteType, hdrUrls, function ( hdrCubeMap ) {
+
+					var pmremGenerator = new THREE.PMREMGenerator( hdrCubeMap );
+					pmremGenerator.update( renderer );
+
+					var pmremCubeUVPacker = new THREE.PMREMCubeUVPacker( pmremGenerator.cubeLods );
+					pmremCubeUVPacker.update( renderer );
+
+					var hdrCubeRenderTarget = pmremCubeUVPacker.CubeUVRenderTarget;
+
+					material.envMap = hdrCubeRenderTarget.texture;
+					material.needsUpdate = true;
+
+				} );
+				*/
+			} );
+
+
+
+		}
+
+		function loadObjModels() {
+			var path = 'models/obj/cerberus/';
+
+			var loader = new THREE.OBJLoader();
+			var material = new THREE.MeshStandardMaterial();
+			loader.load( path + 'Cerberus.obj', function ( group ) {
+
+				// var material = new THREE.MeshBasicMaterial( { wireframe: true } );
+
+				var loader = new THREE.TextureLoader();
+
+				material.roughness = 1;
+				material.metalness = 1;
+
+				material.map = loader.load( path + 'Cerberus_A.jpg' );
+				// roughness is in G channel, metalness is in B channel
+				material.metalnessMap = material.roughnessMap = loader.load( path + 'Cerberus_RM.jpg' );
+				material.normalMap = loader.load( path + 'Cerberus_N.jpg' );
+
+				material.map.wrapS = THREE.RepeatWrapping;
+				material.roughnessMap.wrapS = THREE.RepeatWrapping;
+				material.metalnessMap.wrapS = THREE.RepeatWrapping;
+				material.normalMap.wrapS = THREE.RepeatWrapping;
+
+				group.traverse( function ( child ) {
+
+					if ( child instanceof THREE.Mesh ) {
+
+						child.material = material;
+
+					}
+
+				} );
+
+				var genCubeUrls = function( prefix, postfix ) {
+					return [
+						prefix + 'px' + postfix, prefix + 'nx' + postfix,
+						prefix + 'py' + postfix, prefix + 'ny' + postfix,
+						prefix + 'pz' + postfix, prefix + 'nz' + postfix
+					];
+				};
+
+				var hdrUrls = genCubeUrls( './textures/cube/pisaHDR/', '.hdr' );
+				new THREE.HDRCubeTextureLoader().load( THREE.UnsignedByteType, hdrUrls, function ( hdrCubeMap ) {
+
+					var pmremGenerator = new THREE.PMREMGenerator( hdrCubeMap );
+					pmremGenerator.update( renderer );
+
+					var pmremCubeUVPacker = new THREE.PMREMCubeUVPacker( pmremGenerator.cubeLods );
+					pmremCubeUVPacker.update( renderer );
+
+					var hdrCubeRenderTarget = pmremCubeUVPacker.CubeUVRenderTarget;
+
+					material.envMap = hdrCubeRenderTarget.texture;
+					material.needsUpdate = true;
+
+				} );
+
+				weapon = group;
+
+				camera.add( group );
+
+				repositionWeapon();
+			} );
+		}
+
+		function initGraphics() {
+
+			container = document.getElementById( 'container' );
+
+			camera = new THREE.PerspectiveCamera( 60, window.innerWidth / window.innerHeight, 0.1, 1000 );
+
+			scene = new THREE.Scene();
+			scene.background = new THREE.Color( 0xbfd1e5 );
+
+			renderer = new THREE.WebGLRenderer();
+			renderer.setPixelRatio( window.devicePixelRatio );
+			renderer.setSize( window.innerWidth, window.innerHeight );
+			renderer.shadowMap.enabled = true;
+
+			scene = new THREE.Scene();
+
+			var textureCube = new THREE.CubeTextureLoader()
+				.setPath( 'resources/textures/cube/skybox/' )
+				.load( [ 'px.jpg', 'nx.jpg', 'py.jpg',
+								 'ny.jpg', 'pz.jpg', 'nz.jpg' ] );
+
+			scene.background = textureCube;
+
+
+			renderer.gammaInput = true;
+			renderer.gammaOutput = true;
+			renderer.toneMapping = THREE.Uncharted2ToneMapping;
+			renderer.toneMappingExposure = 0.5;
+
+
+			textureLoader = new THREE.TextureLoader();
+
+			var ambientLight = new THREE.AmbientLight( 0xffffff, 0.67 );
+			scene.add( ambientLight );
+
+			var light = new THREE.DirectionalLight( 0xffffff, 1 );
+			// light.position.set( -10, 18, 5 );
+			light.position.set(0.5, 0, 0.866);
+			light.castShadow = true;
+			var d = 14;
+			light.shadow.camera.left = -d;
+			light.shadow.camera.right = d;
+			light.shadow.camera.top = d;
+			light.shadow.camera.bottom = -d;
+
+			light.shadow.camera.near = 2;
+			light.shadow.camera.far = 50;
+
+			light.shadow.mapSize.x = 1024;
+			light.shadow.mapSize.y = 1024;
+
+			scene.add( light );
+
+			container.innerHTML = "";
+
+			container.appendChild( renderer.domElement );
+
+			stats = new Stats();
+			stats.domElement.style.position = 'absolute';
+			stats.domElement.style.top = '0px';
+			container.appendChild( stats.domElement );
+
+			//
+
+			window.addEventListener( 'resize', onWindowResize, false );
+
+		}
+
+		function initPhysics() {
+
+			// Physics configuration
+
+			collisionConfiguration = new Ammo.btDefaultCollisionConfiguration();
+			dispatcher = new Ammo.btCollisionDispatcher( collisionConfiguration );
+			broadphase = new Ammo.btDbvtBroadphase();
+			solver = new Ammo.btSequentialImpulseConstraintSolver();
+			physicsWorld = new Ammo.btDiscreteDynamicsWorld( dispatcher, broadphase, solver, collisionConfiguration );
+			physicsWorld.setGravity( new Ammo.btVector3( 0, - gravityConstant, 0 ) );
+
+		}
+
+		function createObject( mass, halfExtents, pos, quat, material ) {
+
+			var object = new THREE.Mesh( new THREE.BoxGeometry( halfExtents.x * 2, halfExtents.y * 2, halfExtents.z * 2 ), material );
+			object.position.copy( pos );
+			object.quaternion.copy( quat );
+			convexBreaker.prepareBreakableObject( object, mass, new THREE.Vector3(), new THREE.Vector3(), true );
+			createDebrisFromBreakableObject( object );
+
+		}
+
+		function createDestructibles()
+		{
+			// Tower 1
+			var towerMass = 1000;
+			var towerHalfExtents = new THREE.Vector3( 6, 15, 6 );
+			pos.set( -24, 5, -50 );
+			quat.set( 0, 0, 0, 1 );
+			createObject( towerMass, towerHalfExtents, pos, quat, createMaterial( 0xF0A024 ) );
+
+			// Tower 2
+			pos.set( 24, 5, -50 );
+			quat.set( 0, 0, 0, 1 );
+			createObject( towerMass, towerHalfExtents, pos, quat, createMaterial( 0xF4A321 ) );
+
+			//Bridge
+			var bridgeMass = 1000;
+			var bridgeHalfExtents = new THREE.Vector3( 21, 1, 4.5 );
+			pos.set( 0, 30.6, -50 );
+			quat.set( 0, 0, 0, 1 );
+			createObject( bridgeMass, bridgeHalfExtents, pos, quat, createMaterial( 0xB38835 ) );
+
+			// Stones
+			var stoneMass = 250;
+			var stoneHalfExtents = new THREE.Vector3( 4, 10, 1.0 );
+			var numStones = 8;
+			quat.set( 0, 0, 0, 1 );
+			for ( var i = 0; i < numStones; i++ ) {
+
+				pos.set( -5, 2, -80 + 50 * ( 0.9 - i / ( numStones + 1 ) ) );
+
+				createObject( stoneMass, stoneHalfExtents, pos, quat, createMaterial( 0xB0B0B0 ) );
+
+			}
+
+			// Mountain
+			var mountainMass = 860;
+			var mountainHalfExtents = new THREE.Vector3( 8, 10, 8 );
+			pos.set( 5, mountainHalfExtents.y * 0.5, - 87 );
+			quat.set( 0, 0, 0, 1 );
+			var mountainPoints = [];
+			mountainPoints.push( new THREE.Vector3( mountainHalfExtents.x, - mountainHalfExtents.y, mountainHalfExtents.z ) );
+			mountainPoints.push( new THREE.Vector3( - mountainHalfExtents.x, - mountainHalfExtents.y, mountainHalfExtents.z ) );
+			mountainPoints.push( new THREE.Vector3( mountainHalfExtents.x, - mountainHalfExtents.y, - mountainHalfExtents.z ) );
+			mountainPoints.push( new THREE.Vector3( - mountainHalfExtents.x, - mountainHalfExtents.y, - mountainHalfExtents.z ) );
+			mountainPoints.push( new THREE.Vector3( 0, mountainHalfExtents.y, 0 ) );
+			var mountain = new THREE.Mesh( new THREE.ConvexGeometry( mountainPoints ), createMaterial( 0xFFB443 ) );
+			mountain.position.copy( pos );
+			mountain.quaternion.copy( quat );
+			convexBreaker.prepareBreakableObject( mountain, mountainMass, new THREE.Vector3(), new THREE.Vector3(), true );
+			createDebrisFromBreakableObject( mountain );
+
+		}
+
+		function createObjects() {
+
+			// Ground
+			pos.set( 0, -0.5, 0 );
+			quat.set( 0, 0, 0, 1 );
+			var ground = createParalellepipedWithPhysics( 120, 1, 240, 0, pos, quat, new THREE.MeshPhongMaterial( { color: 0xFFFFFF } ) );
+			ground.receiveShadow = true;
+			textureLoader.load( "resources/textures/grid.png", function( texture ) {
+				texture.wrapS = THREE.RepeatWrapping;
+				texture.wrapT = THREE.RepeatWrapping;
+				texture.repeat.set( 20, 40 );
+				ground.material.map = texture;
+				ground.material.needsUpdate = true;
+			} );
+
+			createDestructibles();
+
+		}
+
+		function createParalellepipedWithPhysics( sx, sy, sz, mass, pos, quat, material ) {
+
+			var object = new THREE.Mesh( new THREE.BoxGeometry( sx, sy, sz, 1, 1, 1 ), material );
+			var shape = new Ammo.btBoxShape( new Ammo.btVector3( sx * 0.5, sy * 0.5, sz * 0.5 ) );
+			shape.setMargin( margin );
+
+			createRigidBody( object, shape, mass, pos, quat );
+
+			return object;
+
+		}
+
+		function createDebrisFromBreakableObject( object ) {
+
+			object.castShadow = true;
+			object.receiveShadow = true;
+
+			var shape = createConvexHullPhysicsShape( object.geometry.vertices );
+			shape.setMargin( margin );
+
+			var body = createRigidBody( object, shape, object.userData.mass, null, null, object.userData.velocity, object.userData.angularVelocity );
+
+			// Set pointer back to the three object only in the debris objects
+			var btVecUserData = new Ammo.btVector3( 0, 0, 0 );
+			btVecUserData.threeObject = object;
+			body.setUserPointer( btVecUserData );
+
+		}
+
+		function removeDebris( object ) {
+
+			scene.remove( object );
+
+			physicsWorld.removeRigidBody( object.userData.physicsBody );
+
+		}
+
+		function createConvexHullPhysicsShape( points ) {
+
+			var shape = new Ammo.btConvexHullShape();
+
+			for ( var i = 0, il = points.length; i < il; i++ ) {
+				var p = points[ i ];
+				this.tempBtVec3_1.setValue( p.x, p.y, p.z );
+				var lastOne = ( i === ( il - 1 ) );
+				shape.addPoint( this.tempBtVec3_1, lastOne );
+			}
+
+			return shape;
+
+		}
+
+		function createRigidBody( object, physicsShape, mass, pos, quat, vel, angVel, isBullet ) {
+
+			if ( pos ) {
+				object.position.copy( pos );
+			}
+			else {
+				pos = object.position;
+			}
+			if ( quat ) {
+				object.quaternion.copy( quat );
+			}
+			else {
+				quat = object.quaternion;
+			}
+
+			var transform = new Ammo.btTransform();
+			transform.setIdentity();
+			transform.setOrigin( new Ammo.btVector3( pos.x, pos.y, pos.z ) );
+			transform.setRotation( new Ammo.btQuaternion( quat.x, quat.y, quat.z, quat.w ) );
+			var motionState = new Ammo.btDefaultMotionState( transform );
+
+			var localInertia = new Ammo.btVector3( 0, 0, 0 );
+			physicsShape.calculateLocalInertia( mass, localInertia );
+
+			var rbInfo = new Ammo.btRigidBodyConstructionInfo( mass, motionState, physicsShape, localInertia );
+			var body = new Ammo.btRigidBody( rbInfo );
+
+			body.setFriction( 0.5 );
+
+			if ( vel ) {
+				body.setLinearVelocity( new Ammo.btVector3( vel.x, vel.y, vel.z ) );
+			}
+			if ( angVel ) {
+				body.setAngularVelocity( new Ammo.btVector3( angVel.x, angVel.y, angVel.z ) );
+			}
+
+			object.userData.physicsBody = body;
+			object.userData.collided = false;
+
+			scene.add( object );
+
+			if ( mass > 0 ) {
+				rigidBodies.push( object );
+
+				// Disable deactivation
+				body.setActivationState( 4 );
+			}
+
+			physicsWorld.addRigidBody( body );
+
+			return body;
+		}
+
+		function createRandomColor() {
+			return Math.floor( Math.random() * ( 1 << 24 ) );
+		}
+
+		function createMaterial( color ) {
+			color = color || createRandomColor();
+			return new THREE.MeshPhongMaterial( { color: color } );
+		}
+
+		function initInput() {
+			// camera.position.set( -14, 8, 16 );
+			/*
+			controls = new THREE.OrbitControls( camera );
+			controls.target.set( 0, 2, 0 );
+			controls.update();
+			*/
+
+			var onKeyDown = function ( event ) {
+
+				switch ( event.keyCode ) {
+
+					case 38: // up
+					case 87: // w
+						moveForward = true;
+						break;
+
+					case 37: // left
+					case 65: // a
+						moveLeft = true; break;
+
+					case 40: // down
+					case 83: // s
+						moveBackward = true;
+						break;
+
+					case 39: // right
+					case 68: // d
+						moveRight = true;
+						break;
+
+					/*
+					case 32: // space
+						if ( canJump === true ) velocity.y += 30;
+						canJump = false;
+						break;
+				  */
+				}
+
+			};
+
+			var onKeyUp = function ( event ) {
+
+				switch( event.keyCode ) {
+
+					case 38: // up
+					case 87: // w
+						moveForward = false;
+						break;
+
+					case 37: // left
+					case 65: // a
+						moveLeft = false;
+						break;
+
+					case 40: // down
+					case 83: // s
+						moveBackward = false;
+						break;
+
+					case 39: // right
+					case 68: // d
+						moveRight = false;
+						break;
+
+				}
+
+			};
+
+			document.addEventListener( 'keydown', onKeyDown, false );
+			document.addEventListener( 'keyup', onKeyUp, false );
+
+			window.addEventListener( 'mousedown', function( event ) {
+
+				if (controls.enabled == false) return;
+				/*
+				mouseCoords.set(
+					( event.clientX / window.innerWidth ) * 2 - 1,
+					- ( event.clientY / window.innerHeight ) * 2 + 1
+				);
+				*/
+				if (!playerdata.isLoggedIn)
+				{
+					if (playerdata.bulletCount <= 0)
+					{
+						startLoginPrompt();
+						return;
+					}
+				}
+
+				mouseCoords.set(0, 0);
+
+				raycaster.setFromCamera( mouseCoords, camera );
+
+				// Creates a ball and throws it
+				var ballMass = gunSettings.bulletPower;
+				var ballRadius = gunSettings.bulletSize;
+				ballMaterial.color.setRGB(gunSettings.bulletColor[0]/255,
+																	gunSettings.bulletColor[1]/255,
+																	gunSettings.bulletColor[2]/255);
+
+				var ball = new THREE.Mesh( new THREE.SphereGeometry( ballRadius, 14, 10 ), ballMaterial );
+				ball.castShadow = true;
+				ball.receiveShadow = true;
+				var ballShape = new Ammo.btSphereShape( ballRadius );
+				ballShape.setMargin( margin );
+				pos.copy( raycaster.ray.direction );
+				pos.add( raycaster.ray.origin );
+				quat.set( 0, 0, 0, 1 );
+				var ballBody = createRigidBody( ball, ballShape, ballMass, pos, quat, null, null, true );
+
+
+				pos.copy( raycaster.ray.direction );
+				pos.multiplyScalar( gunSettings.bulletSpeed );
+				ballBody.setLinearVelocity( new Ammo.btVector3( pos.x, pos.y, pos.z ) );
+
+				bullets.push(ball);
+
+				// animate gun
+				var action = mixer.clipAction(clips[0]);
+				action.repetitions = 1;
+				action.reset().play();
+
+				playerdata.bulletCount--;
+				updateHud();
+
+			}, false );
+
+			controls = new THREE.PointerLockControls( camera );
+			scene.add( controls.getObject() );
+
+
+		}
+
+		function onWindowResize() {
+
+			camera.aspect = window.innerWidth / window.innerHeight;
+			camera.updateProjectionMatrix();
+
+			renderer.setSize( window.innerWidth, window.innerHeight );
+
+			repositionWeapon();
+		}
+
+		function repositionWeapon()
+		{
+			/*
+			weapon.position.x = 0.3 * (camera.aspect - 0.2);
+			weapon.position.y = -0.3;
+			weapon.position.z = - 0.8;
+			weapon.rotation.y = - 0.3 * (Math.PI / 12);
+			*/
+			weapon.scale.x = 0.01;
+			weapon.scale.y = 0.01;
+			weapon.scale.z = 0.01;
+			weapon.position.x = 0.3 * (camera.aspect - 0.2);
+			weapon.position.y = -0.3;
+			weapon.position.z = -0.5;
+			weapon.rotation.y = -12 * (Math.PI / 12);
+
+
+		}
+
+		function animate() {
+
+			requestAnimationFrame( animate );
+
+			if ( controlsEnabled === true ) {
+
+				raycaster.ray.origin.copy( controls.getObject().position );
+				raycaster.ray.origin.y -= 10;
+
+				var intersections = raycaster.intersectObjects( rigidBodies );
+
+				var onObject = intersections.length > 0;
+
+				var time = performance.now();
+				var delta = ( time - prevTime ) / 1000;
+
+				velocity.x -= velocity.x * 10.0 * delta;
+				velocity.z -= velocity.z * 10.0 * delta;
+
+				velocity.y -= 9.8 * 20.0 * delta; // 100.0 = mass
+
+				direction.z = Number( moveForward ) - Number( moveBackward );
+				direction.x = Number( moveLeft ) - Number( moveRight );
+				direction.normalize(); // this ensures consistent movements in all directions
+
+				if ( moveForward || moveBackward ) velocity.z -= direction.z * 400.0 * delta;
+				if ( moveLeft || moveRight ) velocity.x -= direction.x * 400.0 * delta;
+
+				if ( onObject === true ) {
+
+					velocity.y = Math.max( 0, velocity.y );
+					canJump = true;
+
+				}
+
+				controls.getObject().translateX( velocity.x * delta );
+				controls.getObject().translateY( velocity.y * delta );
+				controls.getObject().translateZ( velocity.z * delta );
+
+				if ( controls.getObject().position.y < 10 ) {
+
+					velocity.y = 0;
+					controls.getObject().position.y = 10;
+
+					canJump = true;
+
+				}
+
+				prevTime = time;
+				mixer.update(delta);
+			}
+
+			render();
+			stats.update();
+
+		}
+
+		function render() {
+
+			var deltaTime = clock.getDelta();
+
+			updatePhysics( deltaTime );
+
+			renderer.render( scene, camera );
+
+			time += deltaTime;
+
+		}
+
+		function updatePhysics( deltaTime ) {
+
+			// bullet gravity hack
+			for ( var i = 0, il = bullets.length; i < il; i++ ) {
+				var objThree = bullets[ i ];
+				var objPhys = objThree.userData.physicsBody;
+				var vel = objPhys.getLinearVelocity();
+				objPhys.setLinearVelocity( new Ammo.btVector3( vel.x(), vel.y() + gravityConstant/ 80, vel.z() ) );
+			}
+
+			// Step world
+			physicsWorld.stepSimulation( deltaTime, 100 );
+
+			// Update rigid bodies
+			for ( var i = 0, il = rigidBodies.length; i < il; i++ ) {
+				var objThree = rigidBodies[ i ];
+				var objPhys = objThree.userData.physicsBody;
+				var ms = objPhys.getMotionState();
+				if ( ms ) {
+
+					ms.getWorldTransform( transformAux1 );
+					var p = transformAux1.getOrigin();
+					var q = transformAux1.getRotation();
+					objThree.position.set( p.x(), p.y(), p.z() );
+					objThree.quaternion.set( q.x(), q.y(), q.z(), q.w() );
+
+					objThree.userData.collided = false;
+
+				}
+			}
+
+			for ( var i = 0, il = dispatcher.getNumManifolds(); i < il; i ++ ) {
+
+				var contactManifold = dispatcher.getManifoldByIndexInternal( i );
+				var rb0 = contactManifold.getBody0();
+				var rb1 = contactManifold.getBody1();
+
+				var threeObject0 = Ammo.castObject( rb0.getUserPointer(), Ammo.btVector3 ).threeObject;
+				var threeObject1 = Ammo.castObject( rb1.getUserPointer(), Ammo.btVector3 ).threeObject;
+
+				if ( ! threeObject0 && ! threeObject1 ) {
+					continue;
+				}
+
+				var userData0 = threeObject0 ? threeObject0.userData : null;
+				var userData1 = threeObject1 ? threeObject1.userData : null;
+
+				var breakable0 = userData0 ? userData0.breakable : false;
+				var breakable1 = userData1 ? userData1.breakable : false;
+
+				var collided0 = userData0 ? userData0.collided : false;
+				var collided1 = userData1 ? userData1.collided : false;
+
+				if ( ( ! breakable0 && ! breakable1 ) || ( collided0 && collided1 ) ) {
+					continue;
+				}
+
+				var contact = false;
+				var maxImpulse = 0;
+				for ( var j = 0, jl = contactManifold.getNumContacts(); j < jl; j ++ ) {
+					var contactPoint = contactManifold.getContactPoint( j );
+					if ( contactPoint.getDistance() < 0 ) {
+						contact = true;
+						var impulse = contactPoint.getAppliedImpulse();
+						if ( impulse > maxImpulse ) {
+							maxImpulse = impulse;
+							var pos = contactPoint.get_m_positionWorldOnB();
+							var normal = contactPoint.get_m_normalWorldOnB();
+							impactPoint.set( pos.x(), pos.y(), pos.z() );
+							impactNormal.set( normal.x(), normal.y(), normal.z() );
+						}
+						break;
+					}
+				}
+
+				// If no point has contact, abort
+				if ( ! contact ) {
+					continue;
+				}
+
+				// Subdivision
+
+				// power needed before breaking
+				var fractureImpulse = 1000;
+
+				if ( breakable0 && !collided0 && maxImpulse > fractureImpulse ) {
+
+					var debris = convexBreaker.subdivideByImpact( threeObject0, impactPoint, impactNormal , 1, 2, 1.5 );
+
+					var numObjects = debris.length;
+					for ( var j = 0; j < numObjects; j++ ) {
+
+						createDebrisFromBreakableObject( debris[ j ] );
+
+					}
+
+					objectsToRemove[ numObjectsToRemove++ ] = threeObject0;
+					userData0.collided = true;
+
+				}
+
+				if ( breakable1 && !collided1 && maxImpulse > fractureImpulse ) {
+
+					var debris = convexBreaker.subdivideByImpact( threeObject1, impactPoint, impactNormal , 1, 2, 1.5 );
+
+					var numObjects = debris.length;
+					for ( var j = 0; j < numObjects; j++ ) {
+
+						createDebrisFromBreakableObject( debris[ j ] );
+
+					}
+
+					objectsToRemove[ numObjectsToRemove++ ] = threeObject1;
+					userData1.collided = true;
+
+				}
+
+			}
+
+			for ( var i = 0; i < numObjectsToRemove; i++ ) {
+
+				removeDebris( objectsToRemove[ i ] );
+
+			}
+			numObjectsToRemove = 0;
+
+		}
+
+		</script>
+
+	</body>
+</html>

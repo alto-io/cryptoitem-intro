@@ -1,0 +1,35 @@
+{
+  "name": "cryptoitem-intro",
+  "version": "1.0.0",
+  "description": "Run through these code samples and read the documentation to start thinking about cryptoitems",
+  "main": "app.js",
+  "dependencies": {
+    "express": "^4.16.3",
+    "ejs": "~2.5.2",
+    "mongoose": "~4.13.1",
+    "passport": "~0.3.2",
+    "passport-local": "~1.0.0",
+    "connect-flash": "~0.1.1",
+    "bcrypt-nodejs": "latest",
+    "morgan": "~1.7.0",
+    "body-parser": "~1.15.2",
+    "cookie-parser": "~1.4.3",
+    "method-override": "~2.3.6",
+    "express-session": "~1.14.1"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node app.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alto-io/cryptoitem-intro.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/alto-io/cryptoitem-intro/issues"
+  },
+  "homepage": "https://github.com/alto-io/cryptoitem-intro#readme"
+}
