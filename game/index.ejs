@@ -287,7 +287,6 @@
 		// - Main code -
 
 		init();
-		// loadObjModels();
 		loadGlbModels();
 		animate();
 
@@ -305,71 +304,6 @@
 		var prevTime = performance.now();
 		var velocity = new THREE.Vector3();
 		var direction = new THREE.Vector3();
-
-
-		// This is called with the results from from FB.getLoginStatus().
-	  function statusChangeCallback(response) {
-	    console.log('statusChangeCallback');
-	    console.log(response);
-	    // The response object is returned with a status field that lets the
-	    // app know the current login status of the person.
-	    // Full docs on the response object can be found in the documentation
-	    // for FB.getLoginStatus().
-	    if (response.status === 'connected') {
-	      // Logged into your app and Facebook.
-	      testAPI();
-	    } else {
-				createLoggedOutPanel();
-
-	      // The person is not logged into your app or we are unable to tell.
-	      console.log( 'Please log into this app.');
-	    }
-	  }
-
-	  // This function is called when someone finishes with the Login
-	  // Button.  See the onlogin handler attached to it in the sample
-	  // code below.
-	  function checkLoginState() {
-	    FB.getLoginStatus(function(response) {
-	      statusChangeCallback(response);
-	    });
-	  }
-
-	  window.fbAsyncInit = function() {
-	    FB.init({
-	      appId      : '',
-	      cookie     : true,  // enable cookies to allow the server to access
-	                          // the session
-	      xfbml      : true,  // parse social plugins on this page
-	      version    : 'v2.8' // use graph api version 2.8
-	    });
-
-	    // Now that we've initialized the JavaScript SDK, we call
-	    // FB.getLoginStatus().  This function gets the state of the
-	    // person visiting this page and can return one of three states to
-	    // the callback you provide.  They can be:
-	    //
-	    // 1. Logged into your app ('connected')
-	    // 2. Logged into Facebook, but not your app ('not_authorized')
-	    // 3. Not logged into Facebook and can't tell if they are logged into
-	    //    your app or not.
-	    //
-	    // These three cases are handled in the callback function.
-
-	    FB.getLoginStatus(function(response) {
-	      statusChangeCallback(response);
-	    });
-
-	  };
-
-	  // Load the SDK asynchronously
-	  (function(d, s, id) {
-	    var js, fjs = d.getElementsByTagName(s)[0];
-	    if (d.getElementById(id)) return;
-	    js = d.createElement(s); js.id = id;
-	    js.src = "https://connect.facebook.net/en_US/sdk.js";
-	    fjs.parentNode.insertBefore(js, fjs);
-	  }(document, 'script', 'facebook-jssdk'));
 
 	  function createPlayer(fbdata)
 	  {
@@ -430,16 +364,28 @@
 	    });
 	  }
 
+		function loginCallback()
+		{
+			var jsonRes = JSON.parse(this.responseText);
+
+			if (jsonRes.error)
+			{
+				createLoggedOutPanel();
+			}
+
+			else if (jsonRes.user)
+			{
+				playerdata.accountData = jsonRes.user.local;
+				createLoggedInPanel();
+			}
+		}
 
 		function initLogin()
 		{
-			<% if (typeof user == 'undefined') { %>
-				/* logged Out */
-				createLoggedOutPanel();
-
-			<% } else { %>
-				console.log("user logged in");
-			<% } %>
+			var request = new XMLHttpRequest();
+			request.open("GET", "/checkauth");
+			request.addEventListener("load", loginCallback);
+			request.send();
 		}
 
 
@@ -472,49 +418,69 @@
 				panel.open();
 		}
 
-		function facebookLogout()
+		function localLogout()
 		{
-			FB.logout();
-			playerdata.bulletCount = 0;
-			playerdata.fbdata = null;
-			createLoggedOutPanel();
+			var request = new XMLHttpRequest();
+			//Send the proper header information along with the request
+			var params="";
+			request.open("POST", "/logout", true);
+			request.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+
+			//Send the proper header information along with the request
+			request.addEventListener("load", logoutListener);
+			request.send(params);
 		}
 
-		function facebookLogin()
+		function logoutListener()
 		{
-			FB.login(function(response) {
-		   	if (response.authResponse) {
-					testAPI();
-		   	}
-	     	else {
-	     		console.log('User cancelled login or did not fully authorize.');
-	    	}
-			});
+			console.log(this.responseText);
+			playerdata.bulletCount = 0;
+			playerdata.accountData = null;
+			createLoggedOutPanel();
 		}
 
 		function reqListener()
 		{
-			console.log(this.responseText);
+			var jsonRes = JSON.parse(this.responseText);
+
+			if (!jsonRes.success)
+			{
+				alert(jsonRes.message);
+			}
+
+			else if (jsonRes.user)
+			{
+				playerdata.accountData = jsonRes.user.local;
+				createLoggedInPanel();
+			}
 		}
 
 		function localLogin()
 		{
-			var formData = new FormData();
-			formData.append("email", playerdata.username);
-			formData.append("password", playerdata.password);
+			var params = "email=" + playerdata.username + "&password=" + playerdata.password;
 
 			var request = new XMLHttpRequest();
+			//Send the proper header information along with the request
 			request.open("POST", "/login", true);
 			request.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
 
 			//Send the proper header information along with the request
 			request.addEventListener("load", reqListener);
-			request.send(formData);
+			request.send(params);
 		}
 
 		function registerUser()
 		{
-			console.log(playerdata.username + ":" + playerdata.password);
+			var params = "email=" + playerdata.username + "&password=" + playerdata.password;
+
+			var request = new XMLHttpRequest();
+			//Send the proper header information along with the request
+			request.open("POST", "/signup", true);
+			request.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+
+			//Send the proper header information along with the request
+			request.addEventListener("load", reqListener);
+			request.send(params);
 		}
 
 		function resetLevel()
@@ -531,11 +497,11 @@
 			if (panel != null) panel.destroy();
 			panel = new dat.GUI( { width: 350 } );
 
-			var logout = panel.addFolder('Logged in as ' + playerdata.fbdata.name);
+			var logout = panel.addFolder('Logged in as ' + playerdata.accountData.email);
 
 			settings = {
 				'Reset level': resetLevel,
-				'Log out': facebookLogout
+				'Log out': localLogout
 			}
 
 			logout.add (settings, 'Reset level');
@@ -563,82 +529,7 @@
 			login.add (settings, 'Click here to log in');
 			login.add (settings, 'Click here to register');
 			login.open();
-			/*
-			var folder1 = panel.addFolder( 'Visibility' );
-			var folder2 = panel.addFolder( 'Activation/Deactivation' );
-			var folder3 = panel.addFolder( 'Pausing/Stepping' );
-			var folder4 = panel.addFolder( 'Crossfading' );
-			var folder5 = panel.addFolder( 'Blend Weights' );
-			var folder6 = panel.addFolder( 'General Speed' );
 
-
-
-			settings = {
-				'show model':            true,
-				'show skeleton':         false,
-				'deactivate all':        deactivateAllActions,
-				'activate all':          activateAllActions,
-				'pause/continue':        pauseContinue,
-				'make single step':      toSingleStepMode,
-				'modify step size':      0.05,
-				'from walk to idle':     function () { prepareCrossFade( walkAction, idleAction, 1.0 ) },
-				'from idle to walk':     function () { prepareCrossFade( idleAction, walkAction, 0.5 ) },
-				'from walk to run':      function () { prepareCrossFade( walkAction, runAction, 2.5 ) },
-				'from run to walk':      function () { prepareCrossFade( runAction, walkAction, 5.0 ) },
-				'use default duration':  true,
-				'set custom duration':   3.5,
-				'modify idle weight':    0.0,
-				'modify walk weight':    1.0,
-				'modify run weight':     0.0,
-				'modify time scale':     1.0
-			};
-
-			folder1.add( settings, 'show model' ).onChange( showModel );
-			folder1.add( settings, 'show skeleton' ).onChange( showSkeleton );
-			folder2.add( settings, 'deactivate all' );
-			folder2.add( settings, 'activate all' );
-			folder3.add( settings, 'pause/continue' );
-			folder3.add( settings, 'make single step' );
-			folder3.add( settings, 'modify step size', 0.01, 0.1, 0.001 );
-			crossFadeControls.push( folder4.add( settings, 'from walk to idle' ) );
-			crossFadeControls.push( folder4.add( settings, 'from idle to walk' ) );
-			crossFadeControls.push( folder4.add( settings, 'from walk to run' ) );
-			crossFadeControls.push( folder4.add( settings, 'from run to walk' ) );
-			folder4.add( settings, 'use default duration' );
-			folder4.add( settings, 'set custom duration', 0, 10, 0.01 );
-			folder5.add( settings, 'modify idle weight', 0.0, 1.0, 0.01 ).listen().onChange( function ( weight ) { setWeight( idleAction, weight ) } );
-			folder5.add( settings, 'modify walk weight', 0.0, 1.0, 0.01 ).listen().onChange( function ( weight ) { setWeight( walkAction, weight ) } );
-			folder5.add( settings, 'modify run weight', 0.0, 1.0, 0.01 ).listen().onChange( function ( weight ) { setWeight( runAction, weight ) } );
-			folder6.add( settings, 'modify time scale', 0.0, 1.5, 0.01 ).onChange( modifyTimeScale );
-
-			folder1.open();
-			folder2.open();
-			folder3.open();
-			folder4.open();
-			folder5.open();
-			folder6.open();
-
-			crossFadeControls.forEach( function ( control ) {
-
-				control.classList1 = control.domElement.parentElement.parentElement.classList;
-				control.classList2 = control.domElement.previousElementSibling.classList;
-
-				control.setDisabled = function () {
-
-					control.classList1.add( 'no-pointer-events' );
-					control.classList2.add( 'control-disabled' );
-
-				};
-
-				control.setEnabled = function () {
-
-					control.classList1.remove( 'no-pointer-events' );
-					control.classList2.remove( 'control-disabled' );
-
-				};
-
-			} );
-			*/
 			panel.close();
 		}
 
@@ -679,101 +570,10 @@
 
 				repositionWeapon();
 
-				/*
-				var genCubeUrls = function( prefix, postfix ) {
-					return [
-						prefix + 'px' + postfix, prefix + 'nx' + postfix,
-						prefix + 'py' + postfix, prefix + 'ny' + postfix,
-						prefix + 'pz' + postfix, prefix + 'nz' + postfix
-					];
-				};
-
-				var hdrUrls = genCubeUrls( './textures/cube/pisaHDR/', '.hdr' );
-				new THREE.HDRCubeTextureLoader().load( THREE.UnsignedByteType, hdrUrls, function ( hdrCubeMap ) {
-
-					var pmremGenerator = new THREE.PMREMGenerator( hdrCubeMap );
-					pmremGenerator.update( renderer );
-
-					var pmremCubeUVPacker = new THREE.PMREMCubeUVPacker( pmremGenerator.cubeLods );
-					pmremCubeUVPacker.update( renderer );
-
-					var hdrCubeRenderTarget = pmremCubeUVPacker.CubeUVRenderTarget;
-
-					material.envMap = hdrCubeRenderTarget.texture;
-					material.needsUpdate = true;
-
-				} );
-				*/
 			} );
 
 
 
-		}
-
-		function loadObjModels() {
-			var path = 'models/obj/cerberus/';
-
-			var loader = new THREE.OBJLoader();
-			var material = new THREE.MeshStandardMaterial();
-			loader.load( path + 'Cerberus.obj', function ( group ) {
-
-				// var material = new THREE.MeshBasicMaterial( { wireframe: true } );
-
-				var loader = new THREE.TextureLoader();
-
-				material.roughness = 1;
-				material.metalness = 1;
-
-				material.map = loader.load( path + 'Cerberus_A.jpg' );
-				// roughness is in G channel, metalness is in B channel
-				material.metalnessMap = material.roughnessMap = loader.load( path + 'Cerberus_RM.jpg' );
-				material.normalMap = loader.load( path + 'Cerberus_N.jpg' );
-
-				material.map.wrapS = THREE.RepeatWrapping;
-				material.roughnessMap.wrapS = THREE.RepeatWrapping;
-				material.metalnessMap.wrapS = THREE.RepeatWrapping;
-				material.normalMap.wrapS = THREE.RepeatWrapping;
-
-				group.traverse( function ( child ) {
-
-					if ( child instanceof THREE.Mesh ) {
-
-						child.material = material;
-
-					}
-
-				} );
-
-				var genCubeUrls = function( prefix, postfix ) {
-					return [
-						prefix + 'px' + postfix, prefix + 'nx' + postfix,
-						prefix + 'py' + postfix, prefix + 'ny' + postfix,
-						prefix + 'pz' + postfix, prefix + 'nz' + postfix
-					];
-				};
-
-				var hdrUrls = genCubeUrls( './textures/cube/pisaHDR/', '.hdr' );
-				new THREE.HDRCubeTextureLoader().load( THREE.UnsignedByteType, hdrUrls, function ( hdrCubeMap ) {
-
-					var pmremGenerator = new THREE.PMREMGenerator( hdrCubeMap );
-					pmremGenerator.update( renderer );
-
-					var pmremCubeUVPacker = new THREE.PMREMCubeUVPacker( pmremGenerator.cubeLods );
-					pmremCubeUVPacker.update( renderer );
-
-					var hdrCubeRenderTarget = pmremCubeUVPacker.CubeUVRenderTarget;
-
-					material.envMap = hdrCubeRenderTarget.texture;
-					material.needsUpdate = true;
-
-				} );
-
-				weapon = group;
-
-				camera.add( group );
-
-				repositionWeapon();
-			} );
 		}
 
 		function initGraphics() {
@@ -1054,12 +854,6 @@
 		}
 
 		function initInput() {
-			// camera.position.set( -14, 8, 16 );
-			/*
-			controls = new THREE.OrbitControls( camera );
-			controls.target.set( 0, 2, 0 );
-			controls.update();
-			*/
 
 			var onKeyDown = function ( event ) {
 
@@ -1128,12 +922,7 @@
 			window.addEventListener( 'mousedown', function( event ) {
 
 				if (controls.enabled == false) return;
-				/*
-				mouseCoords.set(
-					( event.clientX / window.innerWidth ) * 2 - 1,
-					- ( event.clientY / window.innerHeight ) * 2 + 1
-				);
-				*/
+
 				if (!playerdata.isLoggedIn)
 				{
 					if (playerdata.bulletCount <= 0)
@@ -1199,12 +988,6 @@
 
 		function repositionWeapon()
 		{
-			/*
-			weapon.position.x = 0.3 * (camera.aspect - 0.2);
-			weapon.position.y = -0.3;
-			weapon.position.z = - 0.8;
-			weapon.rotation.y = - 0.3 * (Math.PI / 12);
-			*/
 			weapon.scale.x = 0.01;
 			weapon.scale.y = 0.01;
 			weapon.scale.z = 0.01;
