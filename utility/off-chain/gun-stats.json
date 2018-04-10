@@ -1,0 +1,6 @@
+{
+  "bulletColor": [0, 0, 0],
+  "bulletSpeed": 120,
+  "bulletPower": 10,
+  "bulletSize": 0.1
+}

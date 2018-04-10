@@ -167,13 +167,7 @@
 			}
 		};
 
-		var gunSettings =
-		{
-			bulletColor: [0, 0, 0],
-			bulletSpeed: 120,
-			bulletPower: 10,
-			bulletSize: 0.1
-		}
+		var gunSettings = {};
 
 
 		// Graphics variables
@@ -350,20 +344,6 @@
 	    );
 	  }
 
-
-	  // Here we run a very simple test of the Graph API after login is
-	  // successful.  See statusChangeCallback() for when this call is made.
-	  function testAPI() {
-	    console.log('Welcome!  Fetching your information.... ');
-	    FB.api('/me', function(fbdata) {
-				playerdata.fbdata = fbdata;
-	      console.log(fbdata);
-	      syncPlayer(fbdata);
-				createLoggedInPanel();
-
-	    });
-	  }
-
 		function loginCallback()
 		{
 			var jsonRes = JSON.parse(this.responseText);
@@ -376,8 +356,26 @@
 			else if (jsonRes.user)
 			{
 				playerdata.accountData = jsonRes.user.local;
-				createLoggedInPanel();
+				// bad hack to wait for gun stats
+				setTimeout(function() {
+					createLoggedInPanel();
+				}, 500);
 			}
+		}
+
+		function initGunStats()
+		{
+			var request = new XMLHttpRequest();
+			request.open("GET", "/gun-stats.json");
+			request.addEventListener("load", gunstatsCallback);
+			request.send();
+		}
+
+		function gunstatsCallback()
+		{
+				gunSettings = JSON.parse(this.responseText);
+				console.log("Loaded Initial Gun Stats:")
+				console.log(gunSettings);
 		}
 
 		function initLogin()
@@ -390,6 +388,8 @@
 
 
 		function init() {
+
+			initGunStats();
 
 			initLogin();
 
@@ -451,7 +451,11 @@
 			else if (jsonRes.user)
 			{
 				playerdata.accountData = jsonRes.user.local;
-				createLoggedInPanel();
+
+				// bad hack to wait for gun stats
+				setTimeout(function() {
+					createLoggedInPanel();
+				}, 500);
 			}
 		}
 
@@ -494,6 +498,7 @@
 		}
 
 		function createLoggedInPanel() {
+
 			if (panel != null) panel.destroy();
 			panel = new dat.GUI( { width: 350 } );
 
